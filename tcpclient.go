@@ -219,15 +219,15 @@ func (mb *tcpTransporter) connect() error {
 	//second stage: ISOTCP (ISO 8073) Connection
 	err = mb.isoConnect()
 	if err != nil {
-		if mb.conn != nil {
-			_ = mb.conn.Close()
-			mb.conn = nil
-		}
+		mb.close()
 		return err
 	}
 	// Third stage : S7 protocol data unit negotiation
-	return mb.negotiatePduLength()
-
+	err = mb.negotiatePduLength()
+	if err != nil {
+		mb.close()
+	}
+	return err
 }
 
 func (mb *tcpTransporter) isoConnect() error {
