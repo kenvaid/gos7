@@ -192,6 +192,7 @@ func (mb *tcpTransporter) Connect() error {
 
 	return mb.connect()
 }
+
 func (mb *tcpTransporter) tcpConnect() error {
 	mb.mu.Lock()
 	defer mb.mu.Unlock()
@@ -208,6 +209,7 @@ func (mb *tcpTransporter) tcpConnect() error {
 	}
 	return nil
 }
+
 func (mb *tcpTransporter) connect() error {
 	//first stage: TCP connection
 	err := mb.tcpConnect()
@@ -237,6 +239,10 @@ func (mb *tcpTransporter) isoConnect() error {
 
 	// Sends the connection request telegram
 	response, err := mb.Send(msg)
+	if err != nil {
+		return err
+	}
+
 	if size := len(response); size == 22 {
 		if mb.LastPDUType != byte(0xD0) { // 0xD0 = CC Connection confirm
 			err = fmt.Errorf("errIsoConnect")
@@ -246,6 +252,7 @@ func (mb *tcpTransporter) isoConnect() error {
 	}
 	return err
 }
+
 func (mb *tcpTransporter) negotiatePduLength() error {
 	// Set PDU Size Requested //lth
 	pduSizePackage := make([]byte, len(s7PDUNegogiationTelegram))
@@ -253,6 +260,9 @@ func (mb *tcpTransporter) negotiatePduLength() error {
 	binary.BigEndian.PutUint16(pduSizePackage[23:], uint16(pduSizeRequested))
 	// Sends the connection request telegram
 	response, err := mb.Send(pduSizePackage)
+	if err != nil {
+		return err
+	}
 	length := len(response)
 	if length == 27 && response[17] == 0 && response[18] == 0 { // 20 = size of Negotiate Answer
 		// Get PDU Size Negotiated
@@ -265,6 +275,7 @@ func (mb *tcpTransporter) negotiatePduLength() error {
 	}
 	return err
 }
+
 func (mb *tcpTransporter) startCloseTimer() {
 	if mb.IdleTimeout <= 0 {
 		return
