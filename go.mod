@@ -1,3 +1,3 @@
-module github.com/robinson/gos7
+module github.com/kenvaid/gos7
 
 go 1.21
