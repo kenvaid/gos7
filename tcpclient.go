@@ -221,6 +221,7 @@ func (mb *tcpTransporter) connect() error {
 	if err != nil {
 		if mb.conn != nil {
 			_ = mb.conn.Close()
+			mb.conn = nil
 		}
 		return err
 	}
