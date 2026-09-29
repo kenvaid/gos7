@@ -5,6 +5,7 @@ package gos7
 // of the BSD license. See the LICENSE file for details.
 import (
 	"bytes"
+	"context"
 	"io"
 	"net"
 	"testing"
@@ -37,7 +38,10 @@ func TestTCPTransporter(t *testing.T) {
 	}
 	req := []byte{0, 1, 0, 17, 0, 2, 1, 2, 0, 1, 0, 17, 0, 2, 1, 2, 2} //lengh 17, > MinPduSize
 
-	client.tcpConnect() //assume tcp connect to test locally
+	if err := client.tcpConnect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
 	rsp, err := client.Send(req)
 	if err != nil {
 		t.Fatal(err)
@@ -46,8 +50,17 @@ func TestTCPTransporter(t *testing.T) {
 	if !bytes.Equal(req, rsp) {
 		t.Fatalf("unexpected response: %x", rsp)
 	}
-	time.Sleep(150 * time.Millisecond)
-	if client.conn != nil {
-		t.Fatalf("connection is not closed: %+v", client.conn)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		client.mu.Lock()
+		connected := client.conn != nil
+		client.mu.Unlock()
+		if !connected {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("connection is not closed after idle timeout")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

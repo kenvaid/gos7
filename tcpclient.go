@@ -4,6 +4,7 @@ package gos7
 // This software may be modified and distributed under the terms
 // of the BSD license. See the LICENSE file for details.
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -185,20 +186,34 @@ func (mb *tcpTransporter) Send(request []byte) (response []byte, err error) {
 }
 
 // Connect establishes a new connection to the address in Address.
-// Connect and Close are exported so that multiple requests can be done with one session
+// Connect and Close are exported so that multiple requests can be done with one session.
 func (mb *tcpTransporter) Connect() error {
-	// mb.mu.Lock()
-	// defer mb.mu.Unlock()
-
-	return mb.connect()
+	return mb.ConnectContext(context.Background())
 }
 
-func (mb *tcpTransporter) tcpConnect() error {
+// ConnectContext establishes a new connection to the address in Address.
+// The context controls the TCP dial; protocol handshakes use Timeout.
+func (mb *tcpTransporter) ConnectContext(ctx context.Context) error {
+	if err := mb.tcpConnect(ctx); err != nil {
+		return err
+	}
+	if err := mb.isoConnect(); err != nil {
+		_ = mb.Close()
+		return err
+	}
+	if err := mb.negotiatePduLength(); err != nil {
+		_ = mb.Close()
+		return err
+	}
+	return nil
+}
+
+func (mb *tcpTransporter) tcpConnect(ctx context.Context) error {
 	mb.mu.Lock()
 	defer mb.mu.Unlock()
 	if mb.conn == nil {
 		dialer := net.Dialer{Timeout: mb.Timeout}
-		conn, err := dialer.Dial("tcp", mb.Address)
+		conn, err := dialer.DialContext(ctx, "tcp", mb.Address)
 		if err != nil {
 			if conn != nil {
 				_ = conn.Close()
@@ -208,26 +223,6 @@ func (mb *tcpTransporter) tcpConnect() error {
 		mb.conn = conn
 	}
 	return nil
-}
-
-func (mb *tcpTransporter) connect() error {
-	//first stage: TCP connection
-	err := mb.tcpConnect()
-	if err != nil {
-		return err
-	}
-	//second stage: ISOTCP (ISO 8073) Connection
-	err = mb.isoConnect()
-	if err != nil {
-		mb.close()
-		return err
-	}
-	// Third stage : S7 protocol data unit negotiation
-	err = mb.negotiatePduLength()
-	if err != nil {
-		mb.close()
-	}
-	return err
 }
 
 func (mb *tcpTransporter) isoConnect() error {

@@ -73,7 +73,7 @@ const (
 	code7DataOverPDU           = 34048
 )
 
-//ErrorText return a string error text from error code integer
+// ErrorText return a string error text from error code integer
 func ErrorText(err int) string {
 	switch err {
 	case 0:
@@ -181,7 +181,7 @@ func ErrorText(err int) string {
 	}
 }
 
-//CPUError specific CPU error after response
+// CPUError specific CPU error after response
 func CPUError(err uint) int {
 	switch err {
 	case 0:
@@ -209,5 +209,4 @@ func CPUError(err uint) int {
 	default:
 		return errCliFunctionRefused
 	}
-	return 0
 }

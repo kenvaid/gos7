@@ -5,7 +5,7 @@ Overview
 -------------------
 For years, numerous drivers/connectors, available in both commercial and open source domains, have supported the connection to S7 family PLC devices. GoS7 fills the gaps in the S7 protocol, implementing it with pure Go (also known as golang). There is a strong belief that low-level communication should be implemented with a low-level programming language that is close to binary and memory.
 
-The minimum supported Go version is 1.13.
+The minimum supported Go version is 1.21.
 
 Functions
 -------------------
@@ -71,6 +71,29 @@ var result uint16
 s7.GetValueAt(buf, 0, &result)	 
   
 ```
+Testing
+----------
+Run the unit tests and static checks without connecting to a PLC:
+
+~~~sh
+go test ./...
+go vet ./...
+~~~
+
+With a C compiler available, run the race detector:
+
+~~~sh
+go test -race ./...
+~~~
+
+The tests in test/tcpclient_test.go require real PLCs at the configured addresses
+and write PLC data. They are excluded by default. Review those addresses and
+the test operations before explicitly running them:
+
+~~~sh
+go test -tags=integration ./test
+~~~
+
 References
 ----------
 - libnodave http://libnodave.sourceforge.net/

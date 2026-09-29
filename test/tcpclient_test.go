@@ -1,3 +1,5 @@
+//go:build integration
+
 package test
 
 // Copyright 2018 Trung Hieu Le. All rights reserved.
@@ -11,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/robinson/gos7"
+	"github.com/kenvaid/gos7"
 )
 
 const (

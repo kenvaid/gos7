@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/robinson/gos7"
+	"github.com/kenvaid/gos7"
 )
 
 // ClientTestAll client test all
