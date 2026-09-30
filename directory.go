@@ -1,14 +1,16 @@
 package gos7
 
-import (
-	"fmt"
-)
-
 // Copyright 2018 Trung Hieu Le. All rights reserved.
 // This software may be modified and distributed under the terms
 // of the BSD license. See the LICENSE file for details.
+
+import (
+	"encoding/binary"
+	"errors"
+	"fmt"
+)
+
 const (
-	// Block type byte
 	blockOB  = 56
 	blockDB  = 65
 	blockSDB = 66
@@ -18,68 +20,73 @@ const (
 	blockSFB = 70
 )
 
-//S7BlocksList Block List
-type S7BlocksList struct {
-	OBList  []int
-	FBList  []int
-	FCList  []int
-	SFBList []int
-	SFCList []int
-	DBList  []int
-	SDBList []int
-}
+type S7BlocksList struct{ OBList, FBList, FCList, SFBList, SFCList, DBList, SDBList []int }
 
-//implement list block
 func (mb *client) PGListBlocks() (list S7BlocksList, err error) {
-	list.OBList, err = mb.pgBlockList(blockOB)
-	//debug
-	fmt.Printf("%v", list.DBList)
-	list.DBList, err = mb.pgBlockList(blockDB)
-	list.FCList, err = mb.pgBlockList(blockFC)
-	list.OBList, err = mb.pgBlockList(blockOB)
-	list.FBList, err = mb.pgBlockList(blockFB)
-	list.SDBList, err = mb.pgBlockList(blockSDB)
-	list.SFBList, err = mb.pgBlockList(blockSFB)
-	list.SFCList, err = mb.pgBlockList(blockSFC)
-	return
+	for _, entry := range []struct {
+		kind   byte
+		target *[]int
+	}{{blockOB, &list.OBList}, {blockDB, &list.DBList}, {blockFC, &list.FCList}, {blockFB, &list.FBList}, {blockSDB, &list.SDBList}, {blockSFB, &list.SFBList}, {blockSFC, &list.SFCList}} {
+		*entry.target, err = mb.pgBlockList(entry.kind)
+		if err != nil {
+			return list, err
+		}
+	}
+	return list, nil
 }
-
-func (mb *client) pgBlockList(blockType byte) (arr []int, err error) {
-	bl := make([]byte, len(s7PGBlockListTelegram))
-	copy(bl, s7PGBlockListTelegram)
-	bl = append(bl, make([]byte, 1)...)
-	switch blockType {
-	case blockDB:
-		bl[len(bl)-1] = blockDB
-	case blockOB:
-		bl[len(bl)-1] = blockOB
-	case blockSDB:
-		bl[len(bl)-1] = blockSDB
-	case blockFC:
-		bl[len(bl)-1] = blockFC
-	case blockSFC:
-		bl[len(bl)-1] = blockSFC
-	case blockFB:
-		bl[len(bl)-1] = blockFB
-	case blockSFB:
-		bl[len(bl)-1] = blockSFB
-	default:
-		return
+func validBlockType(kind int) bool {
+	switch kind {
+	case blockOB, blockDB, blockSDB, blockFC, blockSFC, blockFB, blockSFB:
+		return true
 	}
-	request := NewProtocolDataUnit(bl)
-	//send
-	response, err := mb.send(&request)
-	if err == nil {
-		res := make([]byte, len(response.Data)-33) //remove first 26 byte function and 7 byte header
-		copy(res, response.Data[33:len(response.Data)])
-		arr = dataToBlocks(res)
+	return false
+}
+func (mb *client) pgBlockList(kind byte) (list []int, err error) {
+	if !validBlockType(int(kind)) {
+		return nil, fmt.Errorf("s7: unsupported block type")
 	}
-	return
+	first := true
+	sequence := byte(0)
+	for {
+		var data []byte
+		if first {
+			data = append(append([]byte(nil), s7PGBlockListTelegram...), kind)
+		} else {
+			params := []byte{0, 1, 0x12, 8, 0x11, 0x43, 2, sequence, 0, 0, 0, 0}
+			data = userDataRequest(params, []byte{0x0a, 0, 0, 0})
+		}
+		request := NewProtocolDataUnit(data)
+		response, e := mb.send(&request)
+		if e != nil {
+			// A type with no blocks is an empty directory, not a failed listing.
+			var cpu *S7Error
+			if first && errors.As(e, &cpu) && cpu.High == 0xd2 && cpu.Low == 0x0e {
+				return nil, nil
+			}
+			return nil, e
+		}
+		params, payload, e := userDataPayload(response.Data)
+		if e != nil {
+			return nil, mb.badReply(response, e)
+		}
+		if len(payload)%4 != 0 || params[9] > 1 {
+			return nil, mb.badReply(response, fmt.Errorf("s7: malformed block-list fragment"))
+		}
+		list = append(list, dataToBlocks(payload)...)
+		if params[9] == 0 {
+			return list, nil
+		}
+		if len(payload) == 0 {
+			return nil, mb.badReply(response, fmt.Errorf("s7: non-progressing block-list fragment"))
+		}
+		sequence = params[7]
+		first = false
+	}
 }
 func dataToBlocks(data []byte) []int {
-	arr := make([]int, len(data)/4)
-	for i := 0; i <= len(data)/4-1; i++ {
-		arr[i] = int(data[i*4])*256 + int(data[i*4+1])
+	blocks := make([]int, 0, len(data)/4)
+	for i := 0; i+4 <= len(data); i += 4 {
+		blocks = append(blocks, int(binary.BigEndian.Uint16(data[i:i+2])))
 	}
-	return arr
+	return blocks
 }

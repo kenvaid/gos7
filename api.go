@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-//Client interface s7 client
+// Client interface s7 client
 type Client interface {
 	/***************start API AG (Automatisationsgerät)***************/
 	//Read data blocks from PLC
@@ -76,9 +76,9 @@ type Client interface {
 	//get CP info, return S7CpInfo and its properties
 	GetCPInfo() (info S7CpInfo, err error)
 	/*datetime*/
-	//read clock on PLC, return a time
+	// Deprecated: historically this sets the PLC clock. Use ClockClient.SetPLCDateTime.
 	PGClockRead(datetime time.Time) error
-	//write clock to PLC with datetime input
+	// Deprecated: historically this reads the PLC clock. Use ClockClient.GetPLCDateTime.
 	PGClockWrite() (dt time.Time, err error)
 	/***************end API AG***************/
 }

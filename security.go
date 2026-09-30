@@ -12,7 +12,10 @@ func (mb *client) SetSessionPassword(password string) error {
 	pwd := []byte{0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20}
 	// Encodes the Password
 
-	pwd = append(pwd[:0], append([]byte(password), pwd[0:]...)...)
+	if len(password) > 8 {
+		return fmt.Errorf("s7: password exceeds eight bytes")
+	}
+	copy(pwd, password)
 
 	pwd[0] = byte(pwd[0] ^ 0x55)
 	pwd[1] = byte(pwd[1] ^ 0x55)
@@ -30,6 +33,9 @@ func (mb *client) SetSessionPassword(password string) error {
 	response, err := mb.send(&request)
 	if err == nil {
 		err = verifySecurityResponse(response.Data)
+		if err != nil {
+			return mb.badReply(response, err)
+		}
 	}
 	return err
 }
@@ -44,6 +50,9 @@ func (mb *client) ClearSessionPassword() error {
 	response, err := mb.send(&request)
 	if err == nil {
 		err = verifySecurityResponse(response.Data)
+		if err != nil {
+			return mb.badReply(response, err)
+		}
 	}
 	return err
 
@@ -53,21 +62,17 @@ func (mb *client) GetProtection() (protection S7Protection, err error) {
 
 	szl, _, err := mb.readSzl(0x0232, 0x0004)
 	if err == nil {
-		protection.schSchal = uint(binary.BigEndian.Uint16(szl.Data[2:]))
-		protection.schPar = uint(binary.BigEndian.Uint16(szl.Data[4:]))
-		protection.schRel = uint(binary.BigEndian.Uint16(szl.Data[6:]))
-		protection.bartSch = uint(binary.BigEndian.Uint16(szl.Data[8:]))
-		protection.anlSch = uint(binary.BigEndian.Uint16(szl.Data[10:]))
+		if len(szl.Data) < 12 {
+			return protection, szl.fail(fmt.Errorf("s7: truncated protection record"))
+		}
+		protection.SchSchal = uint(binary.BigEndian.Uint16(szl.Data[2:]))
+		protection.SchPar = uint(binary.BigEndian.Uint16(szl.Data[4:]))
+		protection.SchRel = uint(binary.BigEndian.Uint16(szl.Data[6:]))
+		protection.BartSch = uint(binary.BigEndian.Uint16(szl.Data[8:]))
+		protection.AnlSch = uint(binary.BigEndian.Uint16(szl.Data[10:]))
 	}
 	return
 }
 func verifySecurityResponse(response []byte) (err error) {
-	if length := len(response); length > 30 { // the minimum expected
-		if result := binary.BigEndian.Uint16(response[27:]); result != 0 {
-			err = fmt.Errorf(ErrorText(CPUError(uint(result))))
-		}
-	} else {
-		err = fmt.Errorf(ErrorText(errIsoInvalidPDU))
-	}
-	return err
+	return verifyUserDataAcknowledgement(response)
 }

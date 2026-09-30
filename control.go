@@ -3,110 +3,41 @@ package gos7
 // Copyright 2018 Trung Hieu Le. All rights reserved.
 // This software may be modified and distributed under the terms
 // of the BSD license. See the LICENSE file for details.
-import (
-	"encoding/binary"
-	"fmt"
-)
 
-// implement PLC hot start interface
-func (mb *client) PLCHotStart() error {
-	requestData := make([]byte, len(s7HotStartTelegram))
-	copy(requestData, s7HotStartTelegram)
-	request := NewProtocolDataUnit(requestData)
-	//send
+import "fmt"
+
+func (mb *client) control(template []byte, function byte) error {
+	request := NewProtocolDataUnit(append([]byte(nil), template...))
 	response, err := mb.send(&request)
-	if err == nil {
-		if length := len(response.Data); length >= 20 { // 20 is the minimum expected
-			if int(response.Data[19]) != pduStart {
-				err = fmt.Errorf(ErrorText(errCliCannotStartPLC))
-			} else if length >= 21 {
-				if int(response.Data[20]) == pduAlreadyStarted {
-					err = fmt.Errorf(ErrorText(errCliAlreadyRun))
-				} else {
-					err = fmt.Errorf(ErrorText(errCliCannotStartPLC))
-				}
-			}
-		} else {
-			err = fmt.Errorf(ErrorText(errIsoInvalidPDU))
-		}
+	if err != nil {
+		return err
 	}
-	return err
+	m, err := parseS7(response.Data)
+	if err != nil {
+		return mb.badReply(response, err)
+	}
+	if m.kind != s7AckData || len(m.data) != 0 || len(m.params) < 1 || len(m.params) > 2 || m.params[0] != function {
+		return mb.badReply(response, fmt.Errorf("s7: invalid control acknowledgement"))
+	}
+	if len(m.params) == 2 && m.params[1] != 0 {
+		return fmt.Errorf("s7: control acknowledgement status %02x", m.params[1])
+	}
+	return nil
 }
-
-// implement of PLC Colde Start interface
-func (mb *client) PLCColdStart() error {
-	requestData := make([]byte, len(s7ColdStartTelegram))
-	copy(requestData, s7ColdStartTelegram)
-	request := NewProtocolDataUnit(requestData)
-	//send
-	response, err := mb.send(&request)
-	if err == nil {
-		if length := len(response.Data); length >= 20 { // 20 is the minimum expected
-			if int(response.Data[19]) != pduStart {
-				err = fmt.Errorf(ErrorText(errCliCannotStartPLC))
-			} else if length >= 21 {
-				if int(response.Data[20]) == pduAlreadyStarted {
-					err = fmt.Errorf(ErrorText(errCliAlreadyRun))
-				} else {
-					err = fmt.Errorf(ErrorText(errCliCannotStartPLC))
-				}
-			}
-		} else {
-			err = fmt.Errorf(ErrorText(errIsoInvalidPDU))
-		}
+func (mb *client) PLCHotStart() error  { return mb.control(s7HotStartTelegram, pduStart) }
+func (mb *client) PLCColdStart() error { return mb.control(s7ColdStartTelegram, pduStart) }
+func (mb *client) PLCStop() error      { return mb.control(s7StopTelegram, pduStop) }
+func (mb *client) PLCGetStatus() (int, error) {
+	szl, _, err := mb.readSzl(0x0424, 0)
+	if err != nil {
+		return 0, err
 	}
-	return err
-}
-func (mb *client) PLCStop() error {
-	requestData := make([]byte, len(s7StopTelegram))
-	copy(requestData, s7StopTelegram)
-
-	request := NewProtocolDataUnit(requestData)
-	//send
-	response, err := mb.send(&request)
-	if err == nil {
-		if length := len(response.Data); length >= 20 { // 20 is the minimum expected
-			if int(response.Data[19]) != pduStop {
-				err = fmt.Errorf(ErrorText(errCliCannotStopPLC))
-			} else if length >= 21 {
-				if int(response.Data[20]) == pduAlreadyStopped {
-					err = fmt.Errorf(ErrorText(errCliAlreadyStop))
-				} else {
-					err = fmt.Errorf(ErrorText(errCliCannotStopPLC))
-				}
-			}
-		} else {
-			err = fmt.Errorf(ErrorText(errIsoInvalidPDU))
-		}
+	if len(szl.Data) < 4 {
+		return 0, szl.fail(fmt.Errorf("s7: truncated CPU status"))
 	}
-	return err
-}
-
-func (mb *client) PLCGetStatus() (status int, err error) {
-	//initialize
-	requestData := make([]byte, len(s7GetStatusTelegram))
-	copy(requestData, s7GetStatusTelegram)
-
-	request := NewProtocolDataUnit(requestData)
-	//send
-	response, err := mb.send(&request)
-	if err == nil {
-		if length := len(response.Data); length > 30 { // 30 is the minimum expected
-			if result := binary.BigEndian.Uint16(response.Data[27:]); result == 0 {
-				if int(response.Data[44]) == 0 || int(response.Data[44]) == 8 || int(response.Data[44]) == 4 {
-					status = int(response.Data[44])
-				} else {
-					// Since RUN status is always 8 for all CPUs and CPs, STOP status
-					// sometime can be coded as 3 (especially for old cpu...)
-					status = s7CpuStatusStop
-				}
-
-			} else {
-				err = fmt.Errorf(ErrorText(CPUError(uint(result))))
-			}
-		} else {
-			err = fmt.Errorf(ErrorText(errIsoInvalidPDU))
-		}
+	status := int(szl.Data[3])
+	if status != 0 && status != 8 && status != 4 {
+		status = s7CpuStatusStop
 	}
-	return
+	return status, nil
 }

@@ -110,3 +110,46 @@ License
 https://opensource.org/licenses/BSD-3-Clause
 
 Copyright (c) 2018, robinson
+
+Session and data contracts
+--------------------------
+Configure handler options before concurrent use. Connect/ConnectContext and
+complete request/reply exchanges share one synchronization boundary. Repeating
+Connect on an established session is idempotent. Close interrupts blocked I/O;
+ConnectContext covers dialing and both protocol handshakes. Each TCP connection
+handles one outstanding job at a time. Separate handlers can exchange data in
+parallel; multi-packet reads/writes are not atomic PLC snapshots or transactions.
+
+Transport errors, timeouts, incomplete frames and invalid responses discard the
+session. Reconnect explicitly before a later operation. Writes are never retried
+automatically: a lost acknowledgement does not establish whether the PLC wrote
+its data. PDUSize() is safe to use concurrently; the legacy PDULength and
+LastPDUType fields are deprecated snapshots and must not be accessed concurrently.
+
+S7DataItem.Start is a BYTE offset, and Bit selects 0..7 for a bit item. Both reads
+and writes use the same convention. Counter/timer Start is an ELEMENT index;
+AGReadCT/TM and AGWriteCT/TM require two raw big-endian bytes per element.
+Multi accepts 1..20 items that fit both request and response in the negotiated S7
+PDU; it does not split batches. Check every item's Error as well as the returned
+error. Read words/dwords are unsigned; C/Z/T values are raw uint16 encodings.
+
+TCPClient returns ConnectedClient, which provides Connect, ConnectContext, Close
+and the clearly named GetPLCDateTime/SetPLCDateTime methods. With NewClient,
+assert the optional ClockClient interface for these clock methods. The historical
+PGClockRead(time.Time) SETS the clock and PGClockWrite() GETS it; their behavior
+is preserved and they are deprecated. The base Client interface stays compatible
+with existing implementations. Custom transports can implement PDUSizeProvider;
+otherwise a conservative 240-byte S7 PDU budget is used. Custom transports must
+serialize their own request/reply exchanges and discard faulted sessions.
+Implement the optional SessionTransporter interface when supporting concurrent
+reconnection, so delayed response validation only invalidates the original session.
+
+Helper Checked methods return encoding, range and buffer errors without partial
+writes. Legacy signatures leave invalid writes unchanged and return zero values
+for invalid reads. WSTRING counts UCS-2 characters and rejects non-BMP characters;
+STRING continues to use caller-supplied single-byte protocol bytes. Legacy string
+setters truncate to the declared maximum; Checked setters reject excess length.
+DT/TOD retain millisecond precision, DTL/LTOD/LDT retain nanoseconds, and S5TIME
+rounds down to its selected 10/100/1000/10000 ms time base. PLC calendar values use
+UTC when decoded; DT/DTL setters encode the supplied calendar fields.
+Protection fields are exported as SchSchal, SchPar, SchRel, BartSch and AnlSch.

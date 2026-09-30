@@ -108,13 +108,14 @@ func serveHandshake(conn net.Conn, failure string) error {
 	if err := conn.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
 		return err
 	}
-	if err := readHandshakePacket(conn); err != nil {
+	request, err := readFixture(conn)
+	if err != nil {
 		return err
 	}
 	if failure == "iso EOF" {
 		return nil
 	}
-	isoReply := make([]byte, 22)
+	isoReply := []byte{3, 0, 0, 11, 6, 0xd0, request[8], request[9], 0, 1, 0}
 	isoReply[5] = 0xd0
 	if failure == "iso invalid reply" {
 		isoReply[5] = 0
@@ -125,13 +126,14 @@ func serveHandshake(conn net.Conn, failure string) error {
 	if failure == "iso invalid reply" {
 		return waitHandshakeClose(conn)
 	}
-	if err := readHandshakePacket(conn); err != nil {
+	request, err = readFixture(conn)
+	if err != nil {
 		return err
 	}
 	if failure == "pdu EOF" {
 		return nil
 	}
-	pduReply := make([]byte, 27)
+	pduReply := fixtureAck(request, []byte{0xf0, 0, 0, 1, 0, 1, 1, 0xe0}, nil, 0)
 	binary.BigEndian.PutUint16(pduReply[25:], 480)
 	if failure == "pdu invalid reply" {
 		binary.BigEndian.PutUint16(pduReply[25:], 0)

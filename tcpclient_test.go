@@ -1,66 +1,57 @@
 package gos7
 
-// Copyright 2018 Trung Hieu Le. All rights reserved.
-// This software may be modified and distributed under the terms
-// of the BSD license. See the LICENSE file for details.
 import (
-	"bytes"
-	"context"
+	"errors"
 	"io"
 	"net"
 	"testing"
-	"time"
 )
 
 func TestTCPTransporter(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			t.Error(err)
-			return
+	h, done := localPeer(t, func(conn net.Conn) error {
+		if e := fixtureHandshake(conn, 240); e != nil {
+			return e
 		}
-		defer conn.Close()
-		_, err = io.Copy(conn, conn)
-		if err != nil {
-			t.Error(err)
-			return
+		req, e := readFixture(conn)
+		if e != nil {
+			return e
 		}
-	}()
-	client := &tcpTransporter{
-		Address:     ln.Addr().String(),
-		Timeout:     200 * time.Second,
-		IdleTimeout: 100 * time.Millisecond,
+		reply, _ := autoReply(req)
+		if _, e = conn.Write(reply); e != nil {
+			return e
+		}
+		var b [1]byte
+		_, e = conn.Read(b[:])
+		if errors.Is(e, io.EOF) {
+			return nil
+		}
+		return e
+	})
+	if e := h.Connect(); e != nil {
+		t.Fatal(e)
 	}
-	req := []byte{0, 1, 0, 17, 0, 2, 1, 2, 0, 1, 0, 17, 0, 2, 1, 2, 2} //lengh 17, > MinPduSize
+	b := []byte{0}
+	if e := NewClient(h).AGReadMB(0, 1, b); e != nil || b[0] != 0x12 {
+		t.Fatal(b, e)
+	}
+	if e := h.Close(); e != nil {
+		t.Fatal(e)
+	}
+	if e := <-done; e != nil {
+		t.Fatal(e)
+	}
+}
 
-	if err := client.tcpConnect(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-	rsp, err := client.Send(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	//lth: just compare 7 first byte
-	if !bytes.Equal(req, rsp) {
-		t.Fatalf("unexpected response: %x", rsp)
-	}
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		client.mu.Lock()
-		connected := client.conn != nil
-		client.mu.Unlock()
-		if !connected {
-			break
+func TestTCPConfiguration(t *testing.T) {
+	for _, input := range []struct{ rack, slot, kind int }{{-1, 0, 1}, {8, 0, 1}, {0, 32, 1}, {0, 1, 0}, {0, 1, 4}} {
+		h := NewTCPClientHandlerWithConnectType("127.0.0.1", input.rack, input.slot, input.kind)
+		if h.Connect() == nil {
+			h.Close()
+			t.Fatal("invalid TSAP configuration accepted")
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("connection is not closed after idle timeout")
-		}
-		time.Sleep(10 * time.Millisecond)
+	}
+	h := NewTCPClientHandler("::1", 0, 1)
+	if h.Address != "[::1]:102" {
+		t.Fatal(h.Address)
 	}
 }
